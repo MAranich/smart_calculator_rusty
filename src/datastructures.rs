@@ -66,7 +66,13 @@ pub enum Element {
 
 /// Deterministic Finite Automata [DFA]
 /// 
-/// A [DFA] is the basic structure to identify the given strings.
+/// A [DFA] is the basic structure to identify the given strings. We use multiple [DFA] to identify 
+/// different tokens in out input string. In out case we have a [DFA] for numbers, operators, 
+/// identifiers (function mnames or constant names) and special characters (`(` and `)`, basically). 
+/// 
+/// However this structure by itself does not parse anything, it only tells how it should be parsed. 
+/// The concrete instance in charge of actually identifying strings is the [InstanceDFA]. 
+/// 
 /// Go [here](https://en.wikipedia.org/wiki/Deterministic_finite_automaton) for more inforamtion.
 #[derive(Debug, PartialEq)]
 pub struct DFA {
@@ -82,9 +88,12 @@ pub struct DFA {
     /* Each entry in the tt represents all the transitions for a state. */
 }
 
-/// A concrete instance of a [DFA] 
+/// A concrete instance of a [DFA]. 
 /// 
-/// that rontains information about the current state and if it's alive or not.
+/// Can parse a string and identrify it using the information given by it's [DFA]. 
+/// 
+/// Contains information about the current state and if it's alive or not, as well as 
+/// an optional associated [TokenClass]. 
 #[derive(Debug, PartialEq, Clone)]
 pub struct InstanceDFA {
     pub reference: Rc<DFA>,
@@ -95,7 +104,7 @@ pub struct InstanceDFA {
     pub asociated_class: Option<TokenClass>,
 }
 
-/// A [Token] is the minimal lexical unit with sintctical meaning. 
+/// A [Token] is the minimal lexical unit with sintactical meaning. 
 /// 
 /// It is the basic processing unit for most of the program.
 #[derive(Debug, PartialEq, Clone)]
@@ -117,6 +126,10 @@ pub struct TokenModel {
 }
 
 /// A parsing [Rule]. 
+/// 
+/// Multiple of them generate languages. In this case, they are used to parse the language 
+/// with a [SRA]. If the same [Token] in the antecedent are found while parsing, they will 
+/// be substituted by the consequent. 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Rule {
     /// If these [Token] are found in that order,
