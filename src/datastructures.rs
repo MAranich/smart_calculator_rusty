@@ -7,6 +7,19 @@ const INITIAL_STATE: u16 = 1;
 /// Represents the rejecting state in all [DFA]. 
 const REJECTING_STATE: u16 = 0;
 
+/// When printing a [Number] of the [Number::Rational] variant,
+/// if both numbers numbers have an absolute value less than [PRINT_FRACTION_PRECISION_THRESHOLD],
+/// it will be printed as a fraction ( numerator/denominator ). Otherwise, a numerical
+/// representation will be used.
+pub const PRINT_FRACTION_PRECISION_THRESHOLD: i32 = 1024;
+
+/// If printing a number with a fractionary expansion and all the
+/// digits are not needed, the result will be truncated to [PRINT_NUMBER_DIGITS] digits.
+///
+/// Regardless of how they are displayed, all the number are always processed
+/// with maximum precision.
+pub const PRINT_NUMBER_DIGITS: u32 = 4;
+
 pub const ADD_STR: &'static str = "+";
 pub const SUB_STR: &'static str = "-";
 pub const MULT_STR: &'static str = "*";
@@ -40,7 +53,7 @@ pub const NUM_DFA_CATEGORY_T: usize = 4;
 /// where b!=0 and a and b are whole numbers). This duality allows to perform some basic
 /// operations between real numbers in a fast and exact way while retaining the versatility
 /// of the eral numbers when the rationals are not enough.
-#[derive(PartialEq, Clone)]
+#[derive(Clone)]
 pub enum Number {
     /// A number that cannot be expressed as a/b
     Real(f64),
@@ -1255,6 +1268,7 @@ impl Number {
         /*Use neg. number or 0 in tolerance to ignore check */
 
         if tolerance <= 0.0 {
+            //exact comparasion
             match (&self, &other) {
                 (Number::Real(x), Number::Real(y)) => return x == y,
                 (Number::Real(r), Number::Rational(num, den)) => {
@@ -1274,30 +1288,210 @@ impl Number {
             }
         }
 
-        match (&self, &other) {
-            (Number::Real(x), Number::Real(y)) => return (x - y).abs() < tolerance,
+        /*
+        Idea:
+        given 0 < tolerance:
+        let tolerande = e
+
+        (self - other).abs() < e
+
+        Implementation will depend on the variants of self and other.
+
+        */
+
+        return match (&self, &other) {
+            (Number::Real(x), Number::Real(y)) => {
+                let ret: bool = (x - y).abs() < tolerance;
+                ret
+            }
             (Number::Real(r), Number::Rational(num, den)) => {
-                return (*r - (*num as f64 / *den as f64)).abs() < tolerance;
+                //let ret: bool = (*r - (*num as f64 / *den as f64)).abs() < tolerance;
+
+                /*
+                abs(a/b - r) < e
+                abs(a/b - r*b/b) < e
+                abs((a - r*b)/b) < e
+                abs(a - r*b)/abs(b) < e
+                abs(a - r*b) < e * abs(b)
+                */
+
+                let f_den: f64 = *den as f64; // float denominator
+                let lhs: f64 = (*num as f64) - (*r) * f_den;
+                let rhs: f64 = tolerance * f_den;
+
+                let ret: bool = lhs.abs() < rhs;
+
+                ret
             }
             (Number::Rational(num, den), Number::Real(r)) => {
-                return (*r - (*num as f64 / *den as f64)).abs() < tolerance;
+                //let ret: bool = (*r - (*num as f64 / *den as f64)).abs() < tolerance;
+
+                /*
+                abs(a/b - r) < e
+                abs(a/b - r*b/b) < e
+                abs((a - r*b)/b) < e
+                abs(a - r*b)/abs(b) < e
+                abs(a - r*b) < e * abs(b)
+                */
+
+                let f_den: f64 = *den as f64; // float denominator
+                let lhs: f64 = (*num as f64) - (*r) * f_den;
+                let rhs: f64 = tolerance * f_den;
+
+                let ret: bool = lhs.abs() < rhs;
+
+                ret
             }
             (Number::Rational(self_num, self_den), Number::Rational(oth_num, oth_den)) => {
                 if self_num == oth_num && self_den == oth_den {
                     return true;
                 }
 
-                return ((*self_num as f64 / *self_den as f64)
+                /*
+                let ret: bool = ((*self_num as f64 / *self_den as f64)
                     - (*oth_num as f64 / *oth_den as f64))
                     .abs()
                     < tolerance;
+                */
+
+                /*
+                abs(a/b - c/d) < e
+                diff = a/b - c/d
+
+                = a*d/b*d - c*b/d*b
+                = (a*d-c*b)/db
+
+                > abs(x/y) = abs(x) * abs(1/y)
+                > abs(x/y) = abs(x) * 1/abs(y)
+                > abs(x/y) = abs(x)/abs(y)
+
+                abs((a*d-c*b)/db) < e
+                abs(a*d-c*b)/abs(db) < e
+                abs(a*d-c*b) < e * abs(db)
+
+                */
+
+                let join_num: f64 =
+                    (*self_num as f64) * (*oth_den as f64) - (*oth_num as f64) * (*self_den as f64);
+                let join_den: f64 = (*self_den as f64) * (*oth_den as f64);
+
+                let ret: bool = join_num.abs() < tolerance * join_den;
+
+                ret
+            }
+        };
+    }
+
+
+    /// Returns the number as a string. 
+    /// 
+    /// If the number happens to be close enough to a constant, returns the 
+    /// constant name. 
+    /// 
+    /// If the number is [Number::Rational] and the numerator and denominator are not 
+    /// too big (less than [PRINT_FRACTION_PRECISION_THRESHOLD]), they will be 
+    /// returned in the form "a/b". If they are integers they will only be returned
+    /// the integer part normally ("a"). 
+    /// 
+    /// Otherwise, (if the number is [Number::Real] or [Number::Rational] but too big), 
+    /// it will return the stringified numerical representation "a.b". 
+    /// Only [PRINT_NUMBER_DIGITS] will be returned. Note that the number is truncated, 
+    /// not aproximated. 
+    /// 
+    /// If instead you want the **exact awnser** use [Number::as_numerical_str] instead. 
+    /// This is designed to be a simple human-readable stringification. 
+    pub fn as_str(&self) -> String {
+        /*
+        Idea: If number is a constant, print the related literal.
+
+        If it's a rational, print as a/b if a and b are not too large.
+
+        Otherwise, it's numerical representation will be used and only
+        PRINT_NUMBER_DIGITS decimal places will be displayed.
+        */
+
+
+        if let Some(const_str) = crate::functions::Constants::is_constant(self) {
+            return const_str.to_string();
+        }
+
+        if let Number::Rational(num, den) = self {
+            if num.abs() <= PRINT_FRACTION_PRECISION_THRESHOLD as i64
+                && *den < PRINT_FRACTION_PRECISION_THRESHOLD as u64
+            {
+                // small enough number, print as just num/den
+                return if den == &1 {
+                    // is integer
+                    format!("{}", num)
+                } else {
+                    format!("{}/{}", num, den)
+                };
+            }
+        }
+
+        let mut full_string: String = self.get_numerical().to_string();
+
+        let mut counter: u32 = 0;
+        for (i, c) in full_string.char_indices() {
+            if PRINT_NUMBER_DIGITS <= counter {
+                full_string.truncate(i + 1);
+                return full_string;
+            }
+            if c == '.' || 0 < counter {
+                counter = counter + 1;
+            }
+        }
+
+        //not enough decimal digits, just return the number.
+        return full_string;
+
+        //return format!("{:.PRINT_NUMBER_DIGITS} ", self.get_numerical());
+    }
+
+    /// Returns the number as a string, but with maximum precision
+    /// and the result is guaranteed to be a valid number
+    pub fn as_numerical_str(&self) -> String {
+        match self {
+            Number::Real(r) => format!("{}", r),
+            Number::Rational(n, d) => {
+                if d == &1 {
+                    // is integer
+                    format!("{}", n)
+                } else if d == &0 {
+                    panic!("Attempting to print a invalid rational. (denominator = 0)")
+                } else {
+                    format!("{}/{}", n, d)
+                }
             }
         }
     }
 
-    /// Returns the number as a string. 
-    pub fn as_str(&self) -> String {
-        return self.get_numerical().to_string();
+}
+
+impl PartialEq for Number {
+    fn eq(&self, other: &Number) -> bool {
+        match (self, other) {
+            (Number::Real(r1), Number::Real(r2)) => r1 == r2,
+            (Number::Real(r), Number::Rational(n, d)) => r * *d as f64 == *n as f64,
+            (Number::Rational(n, d), Number::Real(r)) => r * *d as f64 == *n as f64,
+            (Number::Rational(n1, d1), Number::Rational(n2, d2)) => {
+                n1 * *d2 as i64 == n2 * *d1 as i64
+            }
+        }
+    }
+}
+
+impl PartialOrd for Number {
+    fn partial_cmp(&self, other: &Number) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (Number::Real(r1), Number::Real(r2)) => r1.partial_cmp(r2),
+            (Number::Real(r), Number::Rational(n, d)) => (r * *d as f64).partial_cmp(&(*n as f64)),
+            (Number::Rational(n, d), Number::Real(r)) => (r * *d as f64).partial_cmp(&(*n as f64)),
+            (Number::Rational(n1, d1), Number::Rational(n2, d2)) => {
+                //    a/b = c/d     => a * d == c * d
+                Some((n1 * *d2 as i64).cmp(&(n2 * *d1 as i64)))
+            }
+        }
     }
 }
 
@@ -1459,13 +1653,7 @@ impl ops::Mul<Number> for Number {
 
 impl fmt::Debug for Number {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Number::Real(r) => write!(f, "{} ", r),
-            Number::Rational(num, den) => {
-                write!(f, "{}/{} ~= {}", num, den, *num as f64 / *den as f64)
-            }
-        }
-        //f.debug_struct("Number").field("value", &self.value).finish()
+        write!(f, "{}", self.as_str())
     }
 }
 

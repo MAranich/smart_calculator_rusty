@@ -102,7 +102,7 @@ pub fn constant_matcher(mut input: Vec<Token>) -> Vec<Token> {
             match Constants::get_constant(element.lexeme.clone().unwrap().as_ref()) {
                 Some(number) => {
                     element.class = TokenClass::Number;
-                    element.lexeme = Some(number.as_str());
+                    element.lexeme = Some(number.as_numerical_str());
                 }
                 None => {}
             }
@@ -491,6 +491,9 @@ pub fn evaluate_expression(input: String, calc: &mut Calculator, print_messages:
         }
     }
 
+    if calc.parser.ast.len() != 1 {
+        panic!("Non-Unit AST length. "); 
+    }
     let final_result: Number = calc.parser.ast[0].evaluate()?;
     if print_messages {
         //display result
